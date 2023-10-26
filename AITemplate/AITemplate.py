@@ -3,7 +3,8 @@ USE_LARGEST_UNET=False
 
 import os
 import sys
-from .ComfyCode import model_management
+from comfy import model_management
+import comfy.conds
 import comfy.samplers
 import comfy.sample
 import comfy.utils
@@ -182,17 +183,6 @@ def common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, 
 
 nodes.common_ksampler = common_ksampler 
 
-def maximum_batch_area():
-    memory_free = comfy.model_management.get_free_memory() / (1024 * 1024)
-    if comfy.model_management.xformers_enabled() or comfy.model_management.pytorch_attention_flash_attention():
-        area = 200 * memory_free
-    else:
-        #TODO: this formula is because AMD sucks and has memory management issues which might be fixed in the future
-        area = ((memory_free - 1024) * 0.9) / (0.6)
-    return int(max(area, 0))
-
-comfy.model_management.maximum_batch_area = maximum_batch_area
-
 def load_additional_models(positive, negative):
     """loads additional models in positive and negative conditioning"""
     control_nets = comfy.sample.get_models_from_cond(positive, "control") + comfy.sample.get_models_from_cond(negative, "control")
@@ -200,6 +190,22 @@ def load_additional_models(positive, negative):
     gligen = [x[1] for x in gligen]
     models = control_nets + gligen
     return models
+
+def prepare_sampling(model, noise_shape, positive, negative, noise_mask, use_aitemplate):
+    device = model.load_device
+    positive = comfy.sample.convert_cond(positive)
+    negative = comfy.sample.convert_cond(negative)
+
+    if noise_mask is not None:
+        noise_mask = comfy.sample.prepare_mask(noise_mask, noise_shape, device)
+
+    models, inference_memory = comfy.sample.get_additional_models(positive, negative, model.model_dtype())
+    load_models = models
+    if not use_aitemplate:
+        load_models = [model] + models
+    comfy.model_management.load_models_gpu(load_models, comfy.model_management.batch_area_memory(noise_shape[0] * noise_shape[2] * noise_shape[3]) + inference_memory)
+
+    return model.model, positive, negative, noise_mask, models
 
 
 def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative, latent_image, denoise=1.0, disable_noise=False, start_step=None, last_step=None, force_full_denoise=False, noise_mask=None, sigmas=None, callback=None, disable_pbar=False, seed=None):
@@ -256,10 +262,6 @@ def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative
             AITemplate.unet[module['sha256']] = AITemplate.loader.load_module(module['sha256'], module['url'])
             has_loaded = True
 
-    if noise_mask is not None:
-        noise_mask = comfy.sample.prepare_mask(noise_mask, noise.shape, device)
-
-    if use_aitemplate:
         # Apply weights if module has loaded, model is not current_loaded_model or keep_loaded is "disable"
         apply_aitemplate_weights = has_loaded or model is not current_loaded_model or keep_loaded == "disable"
         # Patch the model for LoRAs etc
@@ -276,20 +278,14 @@ def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative
                 dim=model.model.diffusion_model.model_channels,
             )
         current_loaded_model = model
-    else:
-        comfy.model_management.load_model_gpu(model)
-
-    real_model = model.model
-    if use_aitemplate:
-        setattr(real_model, 'aitemplate_use', AITemplate.unet.get(module['sha256']))
 
     noise = noise.to(device)
     latent_image = latent_image.to(device)
 
-    positive_copy = comfy.sample.broadcast_cond(positive, noise.shape[0], device)
-    negative_copy = comfy.sample.broadcast_cond(negative, noise.shape[0], device)
+    real_model, positive_copy, negative_copy, noise_mask, models = prepare_sampling(model, noise.shape, positive, negative, noise_mask, use_aitemplate)
+    if use_aitemplate:
+        setattr(real_model, 'aitemplate_use', AITemplate.unet.get(module['sha256']))
 
-    models = load_additional_models(positive, negative)
 
     sampler = comfy.samplers.KSampler(real_model, steps=steps, device=device, sampler=sampler_name, scheduler=scheduler, denoise=denoise, model_options=model.model_options)
     latent_image.to(model.load_device)
@@ -409,7 +405,7 @@ class ControlNet(ControlBase):
             with precision_scope(comfy.model_management.get_autocast_device(self.device)):
                 comfy.model_management.load_models_gpu([self.control_model_wrapped])
                 context = cond['c_crossattn'].to(self.device)
-                y = cond.get('c_adm', None)
+                y = cond.get('y', None)
                 control = self.control_model(x=x_noisy.to(self.device), hint=self.cond_hint, timesteps=t, context=context.to(self.device), y=y)
         else:
             # AITemplate inference, returns the same as regular
