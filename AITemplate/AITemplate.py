@@ -448,8 +448,6 @@ class ControlNet(ControlBase):
         out.append(self.control_model)
         return out
 
-comfy.controlnet.ControlNet = ControlNet
-
 class AITemplateLoader:
     @classmethod
     def INPUT_TYPES(s):
