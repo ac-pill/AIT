@@ -30,8 +30,9 @@ class AITemplateModelWrapper(torch.nn.Module):
         transformer_options = None,
         **kwargs,
     ):
-        timesteps_pt = t
-        latent_model_input = x
+        latent_model_input = self.real_model.model_sampling.calculate_input(t, x)
+        timesteps_pt = self.real_model.model_sampling.timestep(t).float()
+
         encoder_hidden_states = None
         down_block_residuals = None
         mid_block_residual = None
@@ -39,13 +40,13 @@ class AITemplateModelWrapper(torch.nn.Module):
         if c_crossattn is not None:
             encoder_hidden_states = c_crossattn
         if c_concat is not None:
-            latent_model_input = torch.cat([x] + c_concat, dim=1)
+            latent_model_input = torch.cat([latent_model_input] + c_concat, dim=1)
         if control is not None:
             down_block_residuals = control["output"]
             mid_block_residual = control["middle"][0]
         if 'y' in kwargs:
             add_embeds = kwargs['y']
-        return unet_inference(
+        model_output = unet_inference(
             self.unet_ait_exe,
             latent_model_input=latent_model_input,
             timesteps=timesteps_pt,
@@ -54,6 +55,7 @@ class AITemplateModelWrapper(torch.nn.Module):
             mid_block_residual=mid_block_residual,
             add_embeds=add_embeds,
         )
+        return self.real_model.model_sampling.calculate_denoised(t, model_output, x)
 
 
 def unet_inference(

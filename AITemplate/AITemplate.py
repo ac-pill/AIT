@@ -10,7 +10,6 @@ import comfy.sample
 import comfy.utils
 import comfy.sd
 import comfy.controlnet
-import comfy.k_diffusion.external as k_diffusion_external
 from comfy.model_base import ModelType
 # so we can import nodes and latent_preview
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", ".."))
@@ -286,10 +285,11 @@ def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative
     if use_aitemplate:
         setattr(real_model, 'aitemplate_use', AITemplate.unet.get(module['sha256']))
 
-
-    sampler = comfy.samplers.KSampler(real_model, steps=steps, device=device, sampler=sampler_name, scheduler=scheduler, denoise=denoise, model_options=model.model_options)
     latent_image.to(model.load_device)
     noise.to(model.load_device)
+
+    sampler = comfy.samplers.KSampler(real_model, steps=steps, device=device, sampler=sampler_name, scheduler=scheduler, denoise=denoise, model_options=model.model_options)
+
     samples = sampler.sample(noise, positive_copy, negative_copy, cfg=cfg, latent_image=latent_image, start_step=start_step, last_step=last_step, force_full_denoise=force_full_denoise, denoise_mask=noise_mask, sigmas=sigmas, callback=callback, disable_pbar=disable_pbar, seed=seed)
     samples = samples.cpu()
 
