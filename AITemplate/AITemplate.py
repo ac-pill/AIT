@@ -202,7 +202,7 @@ def prepare_sampling(model, noise_shape, positive, negative, noise_mask, use_ait
     load_models = models
     if not use_aitemplate:
         load_models = [model] + models
-    comfy.model_management.load_models_gpu(load_models, comfy.model_management.batch_area_memory(noise_shape[0] * noise_shape[2] * noise_shape[3]) + inference_memory)
+    comfy.model_management.load_models_gpu(load_models, model.memory_required(noise_shape) + inference_memory)
 
     return model.model, positive, negative, noise_mask, models
 
