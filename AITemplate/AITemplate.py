@@ -222,6 +222,9 @@ def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative
         Determines which module to use
         """
         keys = [key.replace("model.diffusion_model.", "") for key in model.model.diffusion_model.state_dict().keys()]
+        print(f'KEYS: {keys}')
+        print(f'MODEL: {type(model.model)}')
+        print(f'COMFY MODEL: {comfy.model_base.SDXL}')
         sd = "v1"
         if type(model.model) == comfy.model_base.SDXLRefiner:
             sd = "xlr"
@@ -251,7 +254,10 @@ def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative
         if control:
             model_type = "unet_control"
         # Filters the modules
+        print(f'ENV AIT: {AIT_OS}, {AIT_CUDA}')
+
         module = AITemplate.loader.filter_modules(AIT_OS, sd, AIT_CUDA, batch_size, resolution, model_type, largest=USE_LARGEST_UNET)[0]
+        
         if module['sha256'] not in AITemplate.unet:
             if len(AITemplate.unet.keys()) >= MAX_MODULES:
                 to_delete = list(AITemplate.unet.keys())
